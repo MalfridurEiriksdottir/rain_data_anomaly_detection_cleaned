@@ -429,82 +429,101 @@ def get_channel_from_coords(df_sensors_ref, lon_val, lat_val, filename_for_log="
         LOGGER.warning(f"Multiple channel matches for {filename_for_log} (lon {lon_val:.5f}, lat {lat_val:.5f}). Using first: {match.iloc[0]['Channel']}")
     return match.iloc[0]['Channel']
 
-# --- Main Loop: Iterate over SENSORS from metadata, not files in directory ---
-for index, sensor_row in df_sensors.iterrows():
-    sensor_name_meta = sensor_row.get('Name', f'Sensor_Index_{index}')
-    wkt_geom_meta = sensor_row.get('wkt_geom')
-    channel_id_meta = sensor_row.get('Channel')
-    lon_wgs84_meta = sensor_row.get('longitude_wgs84') # From pre-parsing
-    lat_wgs84_meta = sensor_row.get('latitude_wgs84')   # From pre-parsing
+# --- Main Loop ---
+for file_item_name in gauge_files_in_dir: # Iterate over items found in directory
+    LOGGER.info(f"\nProcessing file: {file_item_name}")
+    if not file_item_name.lower().endswith('.csv') or not file_item_name.lower().startswith('gaugedata_'):
+        LOGGER.info(f"Skipping non-standard gauge file: {file_item_name}")
+        continue
 
-    if pd.isna(lon_wgs84_meta) or pd.isna(lat_wgs84_meta): # Check if WKT parsing failed for this row
-        LOGGER.warning(f"Skipping sensor {sensor_name_meta} due to previously failed WKT parsing: '{wkt_geom_meta}'.")
-        continue
-    
-    if pd.isna(channel_id_meta):
-        LOGGER.warning(f"Skipping sensor {sensor_name_meta} due to missing Channel ID in metadata.")
-        continue
-    
+    filename_no_ext = file_item_name.replace('.csv', '').replace('.CSV','')
     try:
-        channel_id = int(channel_id_meta)
-    except ValueError:
-        LOGGER.warning(f"Skipping sensor {sensor_name_meta} due to invalid Channel ID '{channel_id_meta}'.")
+        parts = filename_no_ext.split('_')
+        if len(parts) < 3: raise ValueError("Filename format error (not enough parts)")
+        x_coord_from_filename, y_coord_from_filename = float(parts[1]), float(parts[2])
+        LOGGER.debug(f"Parsed coordinates from filename: {x_coord_from_filename}, {y_coord_from_filename}")
+    except (ValueError, IndexError) as e_fn:
+        LOGGER.warning(f"Could not parse coordinates from filename '{file_item_name}': {e_fn}. Skipping.")
         continue
 
     try:
-        x_epsg25832, y_epsg25832 = transformer_wgs84_to_epsg25832.transform(lon_wgs84_meta, lat_wgs84_meta)
-        x_filename = int(x_epsg25832)
-        y_filename = int(y_epsg25832)
+        lon_wgs84, lat_wgs84 = transformer_filename_to_wgs84.transform(x_coord_from_filename, y_coord_from_filename)
     except Exception as e_trans:
-        LOGGER.error(f"Error transforming coordinates for sensor {sensor_name_meta} (WGS84: {lon_wgs84_meta}, {lat_wgs84_meta}): {e_trans}. Skipping.")
+        LOGGER.error(f"Error transforming coordinates for {file_item_name}: {e_trans}. Skipping.")
+        LOGGER.debug(traceback.format_exc())
         continue
 
-    expected_gauge_filename = f"gaugedata_{x_filename}_{y_filename}_.csv"
-    current_file_path = os.path.join(GAUGE_DATA_FOLDER_ABSOLUTE, expected_gauge_filename)
-    
-    LOGGER.info(f"\nProcessing Sensor: {sensor_name_meta} (Channel: {channel_id}) => Target File: {expected_gauge_filename}")
+    channel_id = get_channel_from_coords(df_sensors, lon_wgs84, lat_wgs84, file_item_name)
+    if channel_id is None:
+        LOGGER.warning(f"No channel identified for {file_item_name}. Skipping API fetch for this file.")
+        continue
+    LOGGER.info(f"Matched channel {channel_id} for file {file_item_name}")
 
     # --- Determine Start Date for API Fetch ---
+    current_file_path = os.path.join(GAUGE_DATA_FOLDER_ABSOLUTE, file_item_name)
+    
     api_fetch_start_date_naive = pd.to_datetime(FALLBACK_START_DATE_STR) # Naive datetime
 
     if os.path.exists(current_file_path) and os.path.getsize(current_file_path) > 0:
         try:
             df_existing_gauge = pd.read_csv(current_file_path)
             if 'datetime' in df_existing_gauge.columns and not df_existing_gauge.empty:
+                # Assume 'datetime' in CSV is a naive string representing NAIVE_CSV_TIMEZONE_ASSUMPTION
                 df_existing_gauge['datetime_parsed'] = pd.to_datetime(df_existing_gauge['datetime'], errors='coerce')
                 df_existing_gauge.dropna(subset=['datetime_parsed'], inplace=True)
+
                 if not df_existing_gauge.empty:
-                    last_ts_naive = df_existing_gauge['datetime_parsed'].max()
+                    last_ts_naive = df_existing_gauge['datetime_parsed'].max() # This is a naive datetime
                     if pd.notna(last_ts_naive):
-                        api_fetch_start_date_naive = last_ts_naive + pd.Timedelta(microseconds=1)
-            else: # File exists but empty or no 'datetime'
-                LOGGER.info(f"File {expected_gauge_filename} is empty or missing 'datetime' column. Using fallback start (naive: {api_fetch_start_date_naive}).")
+                        api_fetch_start_date_naive = last_ts_naive + pd.Timedelta(microseconds=1) # Still naive
+            else:
+                LOGGER.info(f"File {file_item_name} is empty or missing 'datetime' column. Using fallback start (naive: {api_fetch_start_date_naive}).")
         except Exception as e_read_file:
-            LOGGER.warning(f"Error reading or processing existing {expected_gauge_filename}: {e_read_file}. Using fallback start (naive: {api_fetch_start_date_naive}).")
+            LOGGER.warning(f"Error reading or processing existing {file_item_name}: {e_read_file}. Using fallback start (naive: {api_fetch_start_date_naive}).")
             LOGGER.debug(traceback.format_exc())
-    else: # File does not exist or is 0 size
-        LOGGER.info(f"File {expected_gauge_filename} not found or empty. Will create new file. Using fallback start (naive: {api_fetch_start_date_naive}).")
+    else:
+        LOGGER.info(f"File {file_item_name} not found or empty. Assuming new sensor, using fallback start (naive: {api_fetch_start_date_naive}).")
 
-    api_fetch_end_date_naive = pd.Timestamp.now().replace(tzinfo=None)
+    api_fetch_end_date_naive = pd.Timestamp.now().replace(tzinfo=None) # Current naive local time
 
+    # --- IMPORTANT ASSUMPTION FOR API PARAMETERS ---
+    # This section assumes the API's DateFrom and DateTo parameters expect NAIVE LOCAL TIME STRINGS.
+    # If the API expects UTC strings for DateFrom/DateTo, you MUST convert
+    # api_fetch_start_date_naive and api_fetch_end_date_naive to UTC here.
+    # Example conversion to UTC for API parameters (if needed):
+    # import pytz
+    # cph_tz = pytz.timezone(NAIVE_CSV_TIMEZONE_ASSUMPTION)
+    # try:
+    #     start_utc_for_api = cph_tz.localize(api_fetch_start_date_naive, is_dst=None).astimezone(pytz.UTC)
+    #     end_utc_for_api = cph_tz.localize(api_fetch_end_date_naive, is_dst=None).astimezone(pytz.UTC)
+    #     date_from_str_for_api = start_utc_for_api.strftime('%Y-%m-%d%%20%H:%M:%S')
+    #     date_to_str_for_api = end_utc_for_api.strftime('%Y-%m-%d%%20%H:%M:%S')
+    #     LOGGER.info(f"Using UTC for API params: From={date_from_str_for_api}, To={date_to_str_for_api}")
+    # except (pytz.exceptions.AmbiguousTimeError, pytz.exceptions.NonExistentTimeError) as e_tz:
+    #     LOGGER.error(f"Timezone conversion error for API params for {channel_id}: {e_tz}. Skipping.")
+    #     continue # Skip this sensor if API params can't be formed correctly
+    # --- END OF EXAMPLE UTC CONVERSION FOR API ---
+
+    # Using naive local time strings for API parameters (DEFAULT BEHAVIOR OF THIS SCRIPT)
     date_from_str_for_api = api_fetch_start_date_naive.strftime('%Y-%m-%d%%20%H:%M:%S')
     date_to_str_for_api = api_fetch_end_date_naive.strftime('%Y-%m-%d%%20%H:%M:%S')
 
-    LOGGER.info(f"API Fetch Range for Channel {channel_id} (Sensor {sensor_name_meta}, File {expected_gauge_filename}):\n  From (naive local): {api_fetch_start_date_naive}\n  To   (naive local): {api_fetch_end_date_naive}")
+
+    LOGGER.info(f"API Fetch Range for {channel_id} (Naive, assumed {NAIVE_CSV_TIMEZONE_ASSUMPTION}, formatted for API): From={date_from_str_for_api}, To={date_to_str_for_api}")
 
     if api_fetch_start_date_naive >= api_fetch_end_date_naive:
-        LOGGER.info(f"Data for Channel {channel_id} ({expected_gauge_filename}) seems up-to-date. Start date not before end date. Skipping API fetch.")
+        LOGGER.info(f"Data for {channel_id} ({file_item_name}) seems up-to-date. Start date {api_fetch_start_date_naive} is not before end date {api_fetch_end_date_naive}. Skipping API fetch.")
         continue
-    if (api_fetch_end_date_naive - api_fetch_start_date_naive) < pd.Timedelta(minutes=5):
-        LOGGER.info(f"Less than 5 mins of data to fetch for Channel {channel_id} ({expected_gauge_filename}). Skipping API fetch.")
+    if (api_fetch_end_date_naive - api_fetch_start_date_naive) < pd.Timedelta(minutes=5): # Comparison of naive datetimes
+        LOGGER.info(f"Less than 5 mins of data to fetch for {channel_id} ({file_item_name}). Skipping API fetch.")
         continue
 
     api_request_url = (
         f"{API_SERVICE_URL}/Services/DataService.ashx?type=graph&channel={channel_id}"
         f"&DateFrom={date_from_str_for_api}"
-        f"&DateTo={date_to_str_for_api}&Reduction=day"
+        f"&DateTo={date_to_str_for_api}&Reduction=day" # Consider Reduction=no for higher resolution if needed
     )
-    LOGGER.info(f"Fetching data for Channel {channel_id} (Sensor {sensor_name_meta})...")
+    LOGGER.info(f"Fetching data for channel {channel_id}...")
     LOGGER.debug(f"Request URL (first 150 chars): {api_request_url[:150]}")
 
     response_text = ""
@@ -512,101 +531,110 @@ for index, sensor_row in df_sensors.iterrows():
         with urlopen(api_request_url) as response:
             response_text = response.read().decode('utf-8').strip()
         if not response_text:
-            LOGGER.info(f"No response content from API for Channel {channel_id}. Skipping.")
+            LOGGER.info(f"No response content from API for channel {channel_id}. Skipping.")
             continue
         api_data_json = json.loads(response_text)
     except json.JSONDecodeError as e:
-        LOGGER.error(f"Invalid JSON from API for Channel {channel_id}: {e}. Response: '{response_text[:200]}...'")
+        LOGGER.error(f"Invalid JSON from API for {channel_id}: {e}. Response: '{response_text[:200]}...'")
         continue
     except Exception as e_fetch_api:
-        LOGGER.error(f"Error fetching API data for Channel {channel_id}: {e_fetch_api}")
+        LOGGER.error(f"Error fetching API data for {channel_id}: {e_fetch_api}")
         LOGGER.debug(traceback.format_exc())
         continue
 
     api_channels_data = api_data_json.get("Channels", [])
     if not api_channels_data or "StringifiedData" not in api_channels_data[0]:
-        LOGGER.info(f"API response for Channel {channel_id} missing 'Channels' or 'StringifiedData'.")
+        LOGGER.info(f"API response for {channel_id} missing 'Channels' or 'StringifiedData'.")
         continue
 
     data_str_from_api = api_channels_data[0]["StringifiedData"]
     if data_str_from_api == "no data" or not data_str_from_api:
-        LOGGER.info(f"No actual data string in API response for Channel {channel_id} for the requested period.")
+        LOGGER.info(f"No actual data string in API response for {channel_id} for the requested period.")
         continue
 
     try:
         raw_api_data_points = json.loads(data_str_from_api)
     except json.JSONDecodeError as e:
-        LOGGER.error(f"Invalid JSON in 'StringifiedData' for Channel {channel_id}: {e}")
+        LOGGER.error(f"Invalid JSON in 'StringifiedData' for {channel_id}: {e}")
         continue
     if not raw_api_data_points:
-        LOGGER.info(f"API 'StringifiedData' is empty list for Channel {channel_id}.")
+        LOGGER.info(f"API 'StringifiedData' is empty list for {channel_id}.")
         continue
 
-    LOGGER.info(f'Preparing time series from API for Channel {channel_id} (storing as naive datetimes)')
+    # --- Process API Timestamps - Minimal Conversion ---
+    LOGGER.info(f'Preparing time series from API for channel {channel_id} (storing as naive datetimes)')
     newly_fetched_gauge_records = []
     for item in raw_api_data_points:
         timestamp_str, value = item[0], item[1]
         try:
+            # Parse the API string into a naive datetime object
+            # This assumes the API string is in "%Y-%m-%d %H:%M:%S" format
             naive_datetime_from_api = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+            
+            # We store this naive_datetime_from_api. No tz_localize, no tz_convert.
             newly_fetched_gauge_records.append({'datetime': naive_datetime_from_api, 'value': value})
+
         except ValueError:
-            LOGGER.warning(f"Could not parse timestamp string '{timestamp_str}' from API for Channel {channel_id}. Skipping record.")
+            LOGGER.warning(f"Could not parse timestamp string '{timestamp_str}' from API for channel {channel_id} into a naive datetime. Skipping record.")
         except Exception as e_ts_proc:
             LOGGER.warning(f"Error processing timestamp string '{timestamp_str}' (Ch {channel_id}): {e_ts_proc}. Skipping record.")
             LOGGER.debug(traceback.format_exc())
 
     if not newly_fetched_gauge_records:
-        LOGGER.info(f"No valid new records after API processing for {expected_gauge_filename}.")
+        LOGGER.info(f"No valid new records after API processing for {file_item_name}.")
         continue
 
     df_newly_fetched = pd.DataFrame(newly_fetched_gauge_records)
-    LOGGER.info(f"Prepared {len(df_newly_fetched)} new naive gauge records for {expected_gauge_filename}.")
+    # 'datetime' column in df_newly_fetched is now naive datetime objects
+    LOGGER.info(f"Prepared {len(df_newly_fetched)} new naive gauge records for {file_item_name}.")
 
+    # --- Append to CSV ---
     try:
         df_to_write_to_csv = df_newly_fetched
-        # Check if the target file existed *before* this new fetch, to decide on header.
-        # Simpler: always read if exists, concat, then write with header only if writing to a new file
-        # or if concatenating to an empty df_existing_from_csv.
-        # For robust append:
-        header_needed = not (os.path.exists(current_file_path) and os.path.getsize(current_file_path) > 0)
-
         if os.path.exists(current_file_path) and os.path.getsize(current_file_path) > 0:
             try:
+                # When reading existing, parse 'datetime' into naive datetime objects
                 df_existing_from_csv = pd.read_csv(current_file_path, parse_dates=['datetime'])
+                
                 if 'datetime' in df_existing_from_csv.columns and not df_existing_from_csv.empty:
+                    # Ensure it's actually parsed to datetime64[ns]
                     if not pd.api.types.is_datetime64_any_dtype(df_existing_from_csv['datetime']):
+                         LOGGER.warning(f"Column 'datetime' in {current_file_path} was not parsed as datetime. Attempting conversion.")
                          df_existing_from_csv['datetime'] = pd.to_datetime(df_existing_from_csv['datetime'], errors='coerce')
                          df_existing_from_csv.dropna(subset=['datetime'], inplace=True)
+
                     if not df_existing_from_csv.empty and pd.api.types.is_datetime64_any_dtype(df_existing_from_csv['datetime']):
                         df_to_write_to_csv = pd.concat([df_existing_from_csv, df_newly_fetched], ignore_index=True)
-                else: # Existing file was empty or had bad format
-                    header_needed = True # Treat as writing a new file if existing was unusable
+                    else:
+                        LOGGER.warning(f"Could not properly use existing data from {current_file_path}. Overwriting with new data if any.")
+                else:
+                    LOGGER.info(f"Existing file {current_file_path} has no valid 'datetime' data. Overwriting with new data if any.")
             except Exception as e_append_read_csv:
-                 LOGGER.error(f"Error reading existing {current_file_path} for append: {e_append_read_csv}. Will overwrite with new data.")
-                 header_needed = True # If read fails, overwrite with header
+                 LOGGER.error(f"Error reading existing {current_file_path} for append: {e_append_read_csv}. Will attempt to process with new data only.")
+                 LOGGER.debug(traceback.format_exc())
 
         if not df_to_write_to_csv.empty:
+            # Ensure 'datetime' is datetime64 before drop_duplicates and sort
             if not pd.api.types.is_datetime64_any_dtype(df_to_write_to_csv['datetime']):
                 df_to_write_to_csv['datetime'] = pd.to_datetime(df_to_write_to_csv['datetime'], errors='coerce')
-                df_to_write_to_csv.dropna(subset=['datetime'], inplace=True)
+                df_to_write_to_csv.dropna(subset=['datetime'], inplace=True) # Drop if conversion failed
 
-            if not df_to_write_to_csv.empty:
+            if not df_to_write_to_csv.empty: # Check again after potential drop
                 df_to_write_to_csv.drop_duplicates(subset=['datetime'], keep='last', inplace=True)
                 df_to_write_to_csv.sort_values('datetime', inplace=True)
                 
-                # If appending, mode is 'a' and header is False (unless it was a brand new or empty file initially)
-                # If writing new/overwriting, mode is 'w' and header is True.
-                # The `header_needed` logic covers the initial write. For subsequent appends to an existing file, `to_csv` with `mode='a', header=False` is typical.
-                # Let's simplify: write the whole combined (old+new) dataframe.
-                df_to_write_to_csv.to_csv(current_file_path, index=False, date_format=DATE_FORMAT_FOR_CSV_SAVE, header=True) # Always write header with full dataset
-                LOGGER.info(f"Saved data to {current_file_path}. Total records: {len(df_to_write_to_csv)} (naive datetimes, assumed {NAIVE_CSV_TIMEZONE_ASSUMPTION}).")
+                # The 'datetime' column is already naive datetime objects.
+                # to_csv will format them using date_format.
+                df_to_write_to_csv.to_csv(current_file_path, index=False, date_format=DATE_FORMAT_FOR_CSV_SAVE)
+                LOGGER.info(f"Saved data to {current_file_path}. Total records: {len(df_to_write_to_csv)} (naive datetimes representing {NAIVE_CSV_TIMEZONE_ASSUMPTION}).")
             else:
-                LOGGER.info(f"No valid data to write for {current_file_path} after combining/cleaning.")
+                LOGGER.info(f"No valid data to write for {current_file_path} after attempting to combine and clean.")
         else:
             LOGGER.info(f"No data (new or existing) to write for {current_file_path}.")
+
     except Exception as e_save_logic:
         LOGGER.error(f"Critical error in save/append logic for {current_file_path}: {e_save_logic}")
         LOGGER.error(traceback.format_exc())
 
 LOGGER.info(f"\nGauge data ingestion script finished (Minimal Time Conversion Mode - naive times assumed to be {NAIVE_CSV_TIMEZONE_ASSUMPTION}).")
-# --- END OF ENTIRE gg.py (Minimal Time Conversion Mode - MODIFIED FOR INITIAL GENERATION) ---
+# --- END OF ENTIRE gg.py (Minimal Time Conversion Mode) ---
