@@ -1,0 +1,383 @@
+# --- START OF FILE get_radar_data.py ---
+import pandas as pd
+import os
+import re
+import pyproj
+import subprocess
+from datetime import datetime, timedelta
+import time
+import warnings
+import configparser # To read config easily
+
+# --- Define Constants ---
+RADAR_FOLDER = "../radar_data"
+CONFIG_PATH = "config.txt"
+POWERSHELL_SCRIPT_PATH = "TimeSeries_API_DownloadKopi.ps1" # Or actual name
+DEFAULT_START_DATE_RADAR = datetime(2024, 6, 21, 8, 10, 0) # Match initial config or reasonable default
+DATE_FORMAT_CONFIG = "%Y-%m-%d %H:%M:%S"
+DATE_FORMAT_CSV = "%Y-%m-%d %H:%M:%S.%f" # Radar data often has milliseconds
+DATE_FORMAT_RADAR_OUTPUT = "%Y-%m-%d %H:%M:%S" # Datetime format likely in the radar *output* CSV
+RADAR_CSV_HEADER = ['time', 'value', 'quality'] # ASSUMED header in PowerShell output CSV - **VERIFY THIS**
+
+# Suppress specific warnings if needed
+# warnings.filterwarnings("ignore", category=UserWarning)
+
+# --- Helper Functions ---
+
+def get_config_value(key, config_path=CONFIG_PATH):
+    """Reads a specific value from the config.txt file."""
+    try:
+        with open(config_path, "r") as f:
+            for line in f:
+                if line.strip() and not line.startswith("#"):
+                    k, v = line.strip().split("=", 1)
+                    if k == key:
+                        return v
+    except Exception as e:
+        print(f"Warning: Could not read key '{key}' from {config_path}: {e}")
+    return None
+
+def get_last_timestamp_from_radar_csv(filepath):
+    """Reads the last timestamp from the 'time' column of a radar CSV."""
+    # print(f"Checking for existing radar data in {filepath}...")
+
+    # fol = '../radar_data'
+    # print(f"Checking existing radar files in {fol}:")
+
+    # for filename in os.listdir(fol):
+    #     print(filename)
+    if not os.path.exists(filepath):
+        print(f"Warning: Radar file {filepath} does not exist.")
+        return None
+    try:
+        # Read only the last few lines to find the last valid timestamp
+        # This is more complex than gauge due to potential headers/footers/formats
+        # Using pandas might be slow for huge files, but safer
+        df = pd.read_csv(filepath)
+        if 'time' not in df.columns:
+             print(f"Warning: 'time' column not found in {filepath}")
+             return None
+        # Try parsing with expected formats, handling potential timezone info if present
+        df['time_dt'] = pd.to_datetime(df['time'], errors='coerce') # Flexible parsing
+        df.dropna(subset=['time_dt'], inplace=True)
+        if not df.empty:
+            # Ensure timezone-naive for comparison
+            last_time = df['time_dt'].iloc[-1].tz_localize(None)
+            return last_time
+    except Exception as e:
+        print(f"Error reading last timestamp from {filepath}: {e}")
+    return None
+
+def update_config(config_updates, config_path=CONFIG_PATH):
+    """Updates specific key-value pairs in the config.txt file."""
+    try:
+        with open(config_path, "r") as file:
+            lines = file.readlines()
+    except FileNotFoundError:
+        print(f"ERROR: Config file not found at {config_path}")
+        return False # Indicate failure
+
+    updated = {key: False for key in config_updates}
+
+    with open(config_path, "w") as file:
+        for line in lines:
+            written = False
+            for key, value in config_updates.items():
+                if line.startswith(f"{key}="):
+                    file.write(f"{key}={value}\n")
+                    updated[key] = True
+                    written = True
+                    break
+            if not written:
+                file.write(line)
+
+        # Add keys if they were missing entirely (less common for time_start/end)
+        for key, value in config_updates.items():
+            if not updated[key]:
+                 print(f"Warning: Key '{key}' not found in config, adding it.")
+                 file.write(f"{key}={value}\n")
+    return True # Indicate success
+
+def convert_coordinates(lon, lat):
+    """Convert coordinates from WGS84 (EPSG:4326) to EPSG:25832."""
+    if lon is None or lat is None: return None, None
+    try:
+        transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
+        x, y = transformer.transform(lon, lat)
+        return int(x), int(y)
+    except Exception as e:
+        print(f"Error transforming coordinates ({lon}, {lat}): {e}")
+        return None, None
+
+def parse_coordinates(coord_string):
+    """Extracts lon, lat from 'Point (lon lat)' string."""
+    try:
+        coord_string = coord_string.replace("Point (", "").replace(")", "")
+        lon, lat = map(float, coord_string.split())
+        return lon, lat
+    except Exception as e:
+        print(f"Error parsing coordinates '{coord_string}': {e}")
+        return None, None
+
+def find_powershell_output_file(output_dir, radar_id, x, y, expected_start_time_str):
+    """Tries to find the CSV file generated by PowerShell based on naming patterns."""
+    # **THIS IS A GUESS - ADJUST THE PATTERN BASED ON ACTUAL OUTPUT**
+    # Simple guess: TimeSeries_RADARID_Xxxxxx_Yyyyyyy_....csv
+    # More robust: Check modification time for files created recently matching the pattern.
+    time.sleep(2) # Give filesystem time to update
+    possible_files = []
+    try:
+        for filename in os.listdir(output_dir):
+            # Adapt this regex to the actual filename pattern!
+            match = re.match(rf"TimeSeries_{radar_id}_X{x}_Y{y}_.*\.csv", filename, re.IGNORECASE)
+            if match:
+                 filepath = os.path.join(output_dir, filename)
+                 # Optional: Check modification time to ensure it's recent
+                 # file_mod_time = datetime.fromtimestamp(os.path.getmtime(filepath))
+                 # if (datetime.now() - file_mod_time).total_seconds() < 300: # Created within last 5 mins
+                 possible_files.append(filepath)
+
+        if not possible_files:
+            print(f"ERROR: Could not find PowerShell output file in '{output_dir}' for radar {radar_id}, X{x}, Y{y}.")
+            return None
+        if len(possible_files) > 1:
+            print(f"Warning: Found multiple possible PowerShell output files: {possible_files}. Using the most recently modified.")
+            possible_files.sort(key=os.path.getmtime, reverse=True)
+
+        return possible_files[0] # Return the most recently modified matching file
+
+    except FileNotFoundError:
+         print(f"ERROR: PowerShell output directory '{output_dir}' not found.")
+         return None
+    except Exception as e:
+        print(f"ERROR searching for PowerShell output file: {e}")
+        return None
+
+
+# --- Main Radar Data Update Function ---
+
+def get_radar_data_incremental(x, y, name, channel):
+    """
+    Fetches radar data incrementally using PowerShell and appends it.
+    Returns the path to the updated radar CSV file or None if failed.
+    """
+    os.makedirs(RADAR_FOLDER, exist_ok=True)
+
+    # Read necessary static config values
+    radar_id = get_config_value("radar_id")
+    powershell_output_dir = get_config_value("output_dir") # Where PowerShell saves its file
+    bias = get_config_value("bias", CONFIG_PATH) # Keep other params consistent
+
+    if not radar_id or not powershell_output_dir:
+        print("ERROR: Missing 'radar_id' or 'output_dir' in config.txt")
+        return None
+
+    # Define the target file path in our persistent storage
+    # ** Adjust filename pattern if PowerShell output has more details we want to keep **
+    # For consistency with combine script, let's use Xnnn_Ynnn pattern
+    radar_csv_filename = f"VevaRadar_X{x}_Y{y}_.csv" # Match expected pattern
+    radar_csv_filepath = os.path.join(RADAR_FOLDER, radar_csv_filename)
+    radar_csv_filepath = os.path.normpath(radar_csv_filepath) # Normalize path
+
+    # # print all files in radar_csv_filepath
+    # print(f"Checking existing radar files in {RADAR_FOLDER}:")
+    # try:
+    #     for file in os.listdir(RADAR_FOLDER):
+    #         print(f" - {file}")
+    # except FileNotFoundError:
+    #     print(f"ERROR: Radar folder '{RADAR_FOLDER}' not found.")
+    #     return None
+
+
+    # Determine start date for API call
+    last_timestamp = get_last_timestamp_from_radar_csv(radar_csv_filepath)
+    if last_timestamp:
+        start_date = last_timestamp + timedelta(seconds=1) # Fetch after last record
+        start_date = datetime(2025, 5, 21, 8, 10, 0)
+        print(f"Found existing radar data for ({x},{y}). Last record: {last_timestamp}. Fetching from: {start_date}")
+    else:
+        # Use default start from config IF it's the first run, otherwise maybe error or use a fixed historical point?
+        # Let's use the original config start date as the absolute earliest.
+        start_date_str_config = get_config_value("time_start")
+        try:
+             start_date = datetime.strptime(start_date_str_config, DATE_FORMAT_CONFIG)
+        except:
+             print(f"Warning: Could not parse default 'time_start' from config. Using fallback: {DEFAULT_START_DATE_RADAR}")
+             start_date = DEFAULT_START_DATE_RADAR
+        print(f"No existing radar data found for ({x},{y}). Fetching from: {start_date}")
+
+    end_date = datetime.now()
+
+    # Ensure start is before end
+    if start_date >= end_date:
+        print(f"Radar start date ({start_date}) is not before end date ({end_date}). No new data to fetch for ({x},{y}).")
+        return radar_csv_filepath # Return existing path
+
+    # --- Prepare and Run PowerShell ---
+    config_updates = {
+        "time_start": start_date.strftime(DATE_FORMAT_CONFIG),
+        "time_end": end_date.strftime(DATE_FORMAT_CONFIG),
+        "x": x,
+        "y": y,
+        # Optional: Update name/channel if PS script uses them, but it seems unlikely based on config.txt
+        # "name": name,
+        # "channel": channel
+    }
+
+    print(f"Updating config.txt for radar download: {config_updates}")
+    if not update_config(config_updates):
+        print("ERROR: Failed to update config.txt")
+        return None
+
+    print(f"Running PowerShell script: {POWERSHELL_SCRIPT_PATH}")
+    try:
+        # Use check=False initially to handle PowerShell errors more gracefully
+        # Capture output/errors if needed: capture_output=True, text=True
+        ps_result = subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", POWERSHELL_SCRIPT_PATH],
+                                   check=False, capture_output=True, text=True)
+        if ps_result.returncode != 0:
+             print(f"ERROR: PowerShell script failed with return code {ps_result.returncode}.")
+             print(f"stderr:\n{ps_result.stderr}")
+             print(f"stdout:\n{ps_result.stdout}")
+             # Decide if we should continue or fail. Let's fail here.
+             return None
+        print("PowerShell script finished.")
+        # print(f"stdout:\n{ps_result.stdout}") # Optional: Log stdout
+
+    except FileNotFoundError:
+        print(f"ERROR: PowerShell executable or script '{POWERSHELL_SCRIPT_PATH}' not found.")
+        return None
+    except Exception as e:
+        print(f"ERROR running PowerShell script: {e}")
+        return None
+
+    # --- Process PowerShell Output ---
+    # Find the file PowerShell *just* created in its output directory
+    ps_output_file = find_powershell_output_file(powershell_output_dir, radar_id, x, y, config_updates["time_start"])
+
+    if not ps_output_file:
+        print("ERROR: Could not locate the output file from PowerShell. Cannot append data.")
+        # Maybe the PS script failed silently or the naming pattern is wrong?
+        return None # Indicate failure
+
+    print(f"Found PowerShell output file: {ps_output_file}")
+
+    try:
+        # Read the *new* data from the PowerShell output file
+        # ** Adjust read_csv based on actual format (sep, header row, etc.) **
+        new_data_df = pd.read_csv(ps_output_file) # Assume standard CSV comma-separated
+
+        # Optional: Clean headers if they have quotes etc.
+        new_data_df.columns = [c.strip().strip('"') for c in new_data_df.columns]
+
+        # Ensure expected columns exist
+        if 'time' not in new_data_df.columns or 'value' not in new_data_df.columns:
+             print(f"ERROR: PowerShell output file {ps_output_file} missing 'time' or 'value' column.")
+             # Clean up the temp file before failing
+             try: os.remove(ps_output_file)
+             except Exception as e_del: print(f"Warning: could not delete temp file {ps_output_file}: {e_del}")
+             return None
+
+
+        # Parse time and filter out data already present (important safety check)
+        new_data_df['time_dt'] = pd.to_datetime(new_data_df['time'], errors='coerce')
+        new_data_df.dropna(subset=['time_dt'], inplace=True)
+        new_data_df['time_dt'] = new_data_df['time_dt'].dt.tz_localize(None) # Ensure naive for comparison
+
+        if last_timestamp:
+            new_data_df = new_data_df[new_data_df['time_dt'] > last_timestamp]
+
+        if new_data_df.empty:
+            print(f"No *new* radar data points found in {ps_output_file} after filtering.")
+        else:
+            print(f"Appending {len(new_data_df)} new radar records to {radar_csv_filepath}")
+            # Select only the original columns for appending (or desired ones)
+            # Re-order to match expected output if necessary
+            cols_to_append = ['time', 'value'] # Adjust if quality or others are needed
+            if 'quality' in new_data_df.columns: cols_to_append.append('quality')
+            new_data_to_append = new_data_df[cols_to_append]
+
+
+            # Append to the persistent radar CSV file
+            file_exists = os.path.exists(radar_csv_filepath)
+            new_data_to_append.to_csv(
+                radar_csv_filepath,
+                mode='a',
+                header=not file_exists, # Add header only if file is new
+                index=False
+                # date_format=DATE_FORMAT_CSV # pd.to_csv doesn't use date_format directly like this
+            )
+
+        # Clean up the temporary file from PowerShell output dir
+        print(f"Deleting temporary PowerShell output file: {ps_output_file}")
+        try:
+            os.remove(ps_output_file)
+        except Exception as e_del:
+            print(f"Warning: Failed to delete temporary file {ps_output_file}: {e_del}")
+
+        return radar_csv_filepath # Return path to updated persistent file
+
+    except Exception as e:
+        print(f"ERROR processing PowerShell output file {ps_output_file}: {e}")
+        # Optionally try to delete the temp file even on error
+        try:
+             if ps_output_file and os.path.exists(ps_output_file): os.remove(ps_output_file)
+        except Exception as e_del: print(f"Warning: could not delete temp file {ps_output_file}: {e_del}")
+        return None # Indicate failure
+
+
+# --- Main execution part (if run standalone) ---
+if __name__ == "__main__":
+    print("Reading sensor list from SensorOversigt.xlsx...")
+    try:
+        df_sensors = pd.read_excel('SensorOversigt.xlsx')
+    except FileNotFoundError:
+        print("ERROR: SensorOversigt.xlsx not found. Cannot proceed.")
+        exit()
+    except Exception as e:
+        print(f"ERROR reading SensorOversigt.xlsx: {e}")
+        exit()
+
+    print(f"Found {len(df_sensors)} sensors in the list.")
+
+    successful_files = []
+    failed_sensors = []
+
+    # Convert coordinates for all sensors first
+    sensor_coords = []
+    for index, row in df_sensors.iterrows():
+        lon, lat = parse_coordinates(row['wkt_geom'])
+        x, y = convert_coordinates(lon, lat)
+        if x is not None and y is not None:
+            sensor_coords.append({
+                'name': row['Name'],
+                'channel': row['Channel'],
+                'lon': lon,
+                'lat': lat,
+                'x': x,
+                'y': y
+            })
+        else:
+            print(f"Skipping sensor {row['Name']} due to coordinate error.")
+            failed_sensors.append(f"{row['Name']} (Coord Error)")
+
+    # Process each sensor for radar data
+    for sensor_info in sensor_coords:
+        print(f"\nProcessing Radar for Sensor: {sensor_info['name']} ({sensor_info['x']},{sensor_info['y']})")
+
+        updated_radar_path = get_radar_data_incremental(
+            sensor_info['x'], sensor_info['y'], sensor_info['name'], sensor_info['channel']
+        )
+
+        if updated_radar_path:
+            successful_files.append(updated_radar_path)
+        else:
+            failed_sensors.append(f"{sensor_info['name']} (Radar Fetch Error)")
+
+    print("\n--- Radar Data Update Summary ---")
+    print(f"Successfully processed/updated {len(successful_files)} radar files.")
+    if failed_sensors:
+        print(f"Failed to process data for {len(failed_sensors)} sensors/stages: {', '.join(failed_sensors)}")
+    print("Radar data update process finished.")
+
+# --- END OF FILE get_radar_data.py ---

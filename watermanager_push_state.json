@@ -1,0 +1,22 @@
+{
+    "(674693,6133172)": {
+        "raw_radar_channel": "2023-05-17T16:43:00Z",
+        "adjusted_rainfall_channel": "2023-05-17T16:43:00Z",
+        "flag_channel": "2023-05-17T16:43:00Z"
+    },
+    "(674850,6120228)": {
+        "raw_radar_channel": "2023-05-19T08:50:00Z",
+        "adjusted_rainfall_channel": "2023-05-19T08:50:00Z",
+        "flag_channel": "2023-05-19T08:50:00Z"
+    },
+    "(675616,6122248)": {
+        "raw_radar_channel": "2023-05-19T08:50:00Z",
+        "adjusted_rainfall_channel": "2023-05-19T08:50:00Z",
+        "flag_channel": "2023-05-19T08:50:00Z"
+    },
+    "(680808,6121463)": {
+        "raw_radar_channel": "2023-05-19T08:50:00Z",
+        "adjusted_rainfall_channel": "2023-05-19T08:50:00Z",
+        "flag_channel": "2023-05-19T08:50:00Z"
+    }
+}

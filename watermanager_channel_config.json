@@ -1,0 +1,26 @@
+{
+    "SVK 5920 Parkvej": { 
+        "utm_coord_str": "(675616,6122248)", 
+        "raw_radar_channel": 11434,
+        "adjusted_rainfall_channel": 11438,
+        "flag_channel": 11442
+    },
+    "SVK 5930 Jakobshavn": {
+        "utm_coord_str": "(674850,6120228)",
+        "raw_radar_channel": 11435,
+        "adjusted_rainfall_channel": 11439,
+        "flag_channel": 11443
+    },
+    "Regnmåler - 20. Næstelsø Præstemark": {
+        "utm_coord_str": "(680808,6121463)",
+        "raw_radar_channel": 11436,
+        "adjusted_rainfall_channel": 11440,
+        "flag_channel": 11444
+    },
+    "Regnmåler - 8: Kærvej 2": { 
+        "utm_coord_str": "(674693,6133172)",
+        "raw_radar_channel": 11437,
+        "adjusted_rainfall_channel": 11441,
+        "flag_channel": 11445
+    }
+}

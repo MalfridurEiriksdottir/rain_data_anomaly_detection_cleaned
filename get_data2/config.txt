@@ -1,0 +1,9 @@
+# Configuration for VeVaAPI.ps1
+time_start=2025-05-28 09:25:01
+time_end=2025-05-28 12:44:54
+radar_id=354
+epsg=25832
+x=674318
+y=6124140
+output_dir=C:\Users\malfriduranna.eiriks\Downloads
+bias=true
