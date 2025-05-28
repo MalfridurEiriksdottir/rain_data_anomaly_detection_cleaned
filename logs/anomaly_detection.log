@@ -1,0 +1,82 @@
+2025-05-28 10:59:39 - INFO - ===== Pipeline Start =====
+2025-05-28 10:59:39 - INFO - Loading static metadata...
+2025-05-28 11:04:36 - INFO - ===== Pipeline Start =====
+2025-05-28 11:04:36 - INFO - Loading static metadata...
+2025-05-28 11:04:36 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:04:36 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:04:37 - INFO - Static metadata loaded.
+2025-05-28 11:05:39 - INFO - ===== Pipeline Start =====
+2025-05-28 11:05:39 - INFO - Loading static metadata...
+2025-05-28 11:05:39 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:05:39 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:05:39 - INFO - Static metadata loaded.
+2025-05-28 11:05:56 - INFO - ===== Pipeline Start =====
+2025-05-28 11:05:56 - INFO - Loading static metadata...
+2025-05-28 11:05:56 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:05:56 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:05:56 - INFO - Static metadata loaded.
+2025-05-28 11:06:24 - INFO - ===== Pipeline Start =====
+2025-05-28 11:06:24 - INFO - Loading static metadata...
+2025-05-28 11:06:24 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:06:24 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:06:24 - INFO - Static metadata loaded.
+2025-05-28 11:06:24 - INFO - Initializing master data for 29 coordinates from PKL/CSV...
+2025-05-28 11:06:25 - INFO - Master data initialization complete. Loaded/initialized for 29 coords.
+2025-05-28 11:06:25 - INFO - ===== Running a single live adjustment cycle =====
+2025-05-28 11:06:25 - INFO - --- Starting Adjustment Cycle for Window: 2025-05-28 07:14:00+00:00 to 2025-05-28 08:06:00+00:00 ---
+2025-05-28 11:06:25 - INFO - Found 1 sensors with data in window.
+2025-05-28 11:06:25 - INFO - --- Preprocessing Windowed Data ---
+2025-05-28 11:06:25 - WARNING - Sensor (677005,6123173) (Window): Preprocessing - No valid gauge or radar for alignment.
+2025-05-28 11:06:25 - ERROR - FE Error (677005,6123173): Cannot set a DataFrame with multiple columns to the single column Difference
+2025-05-28 11:06:25 - INFO - --- Starting Batch Processing on Windowed Data ---
+2025-05-28 11:06:25 - INFO - Generated 1 batch periods for window.
+2025-05-28 11:06:25 - INFO - --- Finished Batch Processing Loop for Window ---
+2025-05-28 11:06:25 - INFO - --- Calculating Final Rolling Error Metrics on Windowed Data ---
+2025-05-28 11:06:25 - INFO - --- Calculating Final Rolling Error Metrics on Windowed Data ---
+2025-05-28 11:06:25 - INFO - Insufficient data (all NaNs in key series) for rolling error metrics for (677005,6123173) (Window).
+2025-05-28 11:06:25 - INFO - --- Finished Calculating Final Rolling Error Metrics for Window ---
+2025-05-28 11:06:25 - INFO - --- Merging window processing results back into master data ---
+2025-05-28 11:06:26 - INFO - --- Saving Detailed Output CSV Files for WINDOW ending 20250528_0720 ---
+2025-05-28 11:06:26 - INFO - --- Finished Saving Detailed Output CSV Files for Window to results_files\detailed_sensor_output ---
+2025-05-28 11:06:26 - INFO - --- Generating Visualizations using full master data (reflecting updates from window ending 20250528_0720) ---
+2025-05-28 11:06:27 - INFO - Calling create_plots_with_error_markers with 29 dataframes (full history from master).
+2025-05-28 11:07:58 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:07:58 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:07:59 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 11:07:59 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 11:38:21 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:38:21 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:38:21 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 11:38:21 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 11:38:56 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:38:56 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:38:56 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 11:38:56 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 11:39:13 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:39:13 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:39:13 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 11:39:13 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 11:39:28 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:39:28 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:39:29 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 11:39:29 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 11:39:46 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:39:46 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:39:47 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 11:39:47 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 11:42:24 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:42:24 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:42:24 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 11:42:24 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 11:45:42 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 11:45:42 - INFO - Loaded 29 target coordinates.
+2025-05-28 11:45:42 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 11:45:42 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 12:40:03 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 12:40:03 - INFO - Loaded 29 target coordinates.
+2025-05-28 12:40:03 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 12:40:03 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
+2025-05-28 12:46:30 - INFO - Loading target coordinates from: all_coords.txt
+2025-05-28 12:46:30 - INFO - Loaded 29 target coordinates.
+2025-05-28 12:46:30 - INFO - Attempting to load time series from: all_data_pkl2
+2025-05-28 12:46:30 - INFO - Finished loading time series. Successfully processed 29 DataFrames out of 29 targets.
