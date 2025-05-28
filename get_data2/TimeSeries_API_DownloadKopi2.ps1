@@ -171,7 +171,7 @@ $config = Read-ConfigFile -configFilePath $configFilePath
 
 if (-not $config) {
     Write-Host "Failed to read configuration. Exiting." -ForegroundColor Red
-    Read-Host -Prompt "Press Enter to exit"
+    # Read-Host -Prompt "Press Enter to exit"
     exit
 }
 
@@ -191,7 +191,7 @@ $password = [Environment]::GetEnvironmentVariable("veva_password", [System.Envir
 
 if (-not $email -or -not $password) {
     Write-Host "Environment variables veva_email or veva_password are not set. Exiting." -ForegroundColor Red
-    Read-Host -Prompt "Press Enter to exit"
+    # Read-Host -Prompt "Press Enter to exit"
     exit
 }
 
@@ -199,7 +199,7 @@ $token = Login-ToVeVaAPI -email $email -password $password
 
 if (-not $token) {
     Write-Host "Failed to authenticate. Exiting." -ForegroundColor Red
-    Read-Host -Prompt "Press Enter to exit"
+    # Read-Host -Prompt "Press Enter to exit"
     exit
 }
 
