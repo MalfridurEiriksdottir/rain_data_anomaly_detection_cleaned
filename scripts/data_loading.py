@@ -86,53 +86,6 @@ def load_target_coordinates():
     print(f"Loaded {len(target_coordinate_strings)} target coordinates.")
     return target_coordinate_strings, coordinate_locations_utm
 
-def load_target_coordinates(filepath: Path = Path("all_coords.txt")): # Assuming CFG.ALL_COORDS_FILE
-    logger.info(f"Loading target coordinates from: {filepath}")
-    target_coords_dict = {}
-    # This is a guess for coord_loc_utm_dict, as its intended structure isn't clear from the error
-    coord_loc_utm_dict = {} 
-
-    if not filepath.exists():
-        logger.error(f"Target coordinates file not found: {filepath}")
-        return {}, {} # Return empty dicts
-
-    with open(filepath, 'r') as f:
-        for line_num, line in enumerate(f):
-            line = line.strip()
-            if not line:
-                continue
-            # Assuming line is like "(x,y)" or "x,y"
-            # You might need more robust parsing depending on the actual content
-            # For now, let's assume the line itself is the key we want (the string "(x,y)")
-            
-            # Example: Key is the string, value could be something else or just a placeholder
-            # For target_coords_static_raw, let's assume the string coordinate is the key
-            # and the value could be the parsed (int_x, int_y) tuple or just True.
-            # The error occurs because main.py expects .items() on it.
-            
-            # Let's assume we want the string coordinate as key and a placeholder value for target_coords_static_raw
-            # And for coord_loc_utm_all_static_raw, we want the string coordinate as key and the (int_x, int_y) tuple as value
-            
-            match = re.match(r"\(?(\d+)\s*,\s*(\d+)\)?", line)
-            if match:
-                x = int(match.group(1))
-                y = int(match.group(2))
-                coord_str_key = f"({x},{y})" # Consistent string key format
-
-                # For target_coords_static_raw:
-                # What value should it have? The main script uses str(k): v. 
-                # If it's just a list of target coordinates, perhaps the value is just True or the tuple itself.
-                # Let's assume the main script just wants to iterate over its keys for the list_of_target_coords
-                target_coords_dict[coord_str_key] = (x, y) # Or True, or some other relevant data
-
-                # For coord_loc_utm_all_static_raw:
-                # This seems to be a map from the string coordinate to the (int_x, int_y) tuple
-                coord_loc_utm_dict[coord_str_key] = (x, y)
-            else:
-                logger.warning(f"Could not parse coordinate from line {line_num+1} in {filepath}: '{line}'")
-
-    logger.info(f"Loaded {len(target_coords_dict)} target coordinates.")
-    return target_coords_dict, coord_loc_utm_dict
 
 # def process_sensor_metadata(sensordata: pd.DataFrame):
 #     """Map sensor channels and return sensor_channels and list of SVK coordinates."""
@@ -251,39 +204,6 @@ def process_sensor_metadata(sensordata: pd.DataFrame):
     return utm_to_channel_description, svk_coords_utm # Return the populated map
 
 # ...(load_time_series_data remains the same)...
-
-def load_time_series_data(target_coords: list, locations_utm: dict):
-    """Load time series data for each sensor from pickle files."""
-    all_data = {}
-    missing_files = []
-    print(f"Loading time series from: {CFG.PKL_DATA_DIR}")
-    if not CFG.PKL_DATA_DIR.exists():
-        print(f"Warning: PKL directory not found: {CFG.PKL_DATA_DIR}")
-    for coord_str in target_coords:
-        pkl_path = CFG.PKL_DATA_DIR / f'all_data_{coord_str}.pkl'
-        try:
-            if pkl_path.is_file():
-                df = pd.read_pickle(pkl_path)
-                # print(df.head())
-                if not isinstance(df.index, pd.DatetimeIndex):
-                    df.index = pd.to_datetime(df.index)
-                all_data[coord_str] = df
-                # print(df.head())
-            else:
-                missing_files.append(coord_str)
-        except Exception as e:
-            print(f"Error loading {pkl_path}: {e}")
-    print(f"Loaded data for {len(all_data)}/{len(target_coords)} sensors.")
-    valid_locations_utm = {k: v for k, v in locations_utm.items() if k in all_data}
-    
-    return all_data, valid_locations_utm, missing_files
-
-
-
-
-
-
-
 
 
 def load_time_series_data(target_coords: list, locations_utm: dict):
