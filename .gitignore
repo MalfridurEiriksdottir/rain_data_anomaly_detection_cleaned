@@ -1,2 +1,5 @@
 gauge_data
 radar_data
+__pycache__/
+*.pyc
+
